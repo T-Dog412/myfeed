@@ -192,14 +192,14 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
 const RSS_SOURCES = [
   {name:"TechCrunch Japan",url:"https://jp.techcrunch.com/feed/",cat:"テック",badge:"badge-tech",icon:"🖥"},
   {name:"The Verge",url:"https://www.theverge.com/rss/index.xml",cat:"テック",badge:"badge-tech",icon:"🖥"},
-  {name:"Reuters Technology",url:"https://feeds.reuters.com/reuters/technologyNews",cat:"マーケット",badge:"badge-market",icon:"📈"},
   {name:"Wired Japan",url:"https://wired.jp/rss/",cat:"テック",badge:"badge-tech",icon:"🖥"},
   {name:"東洋経済オンライン",url:"https://toyokeizai.net/list/feed/rss",cat:"マーケット",badge:"badge-market",icon:"📈"},
   {name:"MIT Technology Review",url:"https://www.technologyreview.com/feed/",cat:"AI",badge:"badge-ai",icon:"🤖"},
   {name:"Ars Technica",url:"https://feeds.arstechnica.com/arstechnica/index",cat:"テック",badge:"badge-tech",icon:"🖥"},
-  {name:"Yahoo!ニュース テクノロジー",url:"https://news.yahoo.co.jp/rss/topics/it.xml",cat:"テック",badge:"badge-tech",icon:"🖥"}
 ];
-const RSS2JSON = "https://api.rss2json.com/v1/api.json?rss_url=";
+const RSS2JSON = "https://api.rss2json.com/v1/api.json?count=15&rss_url=";
+const GEMINI_KEY = "AIzaSyAiFUUcC6iqyNyveiyu2nSOfVh9ddvFU5M";
+const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_KEY}`;
 const CATS = ["すべて","AI","テック","マーケット"];
 
 let articles = [];
@@ -270,6 +270,15 @@ function cardHTML(a){
   </div>`;
 }
 
+async function gemini(prompt){
+  const res=await fetch(GEMINI_URL,{
+    method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({contents:[{parts:[{text:prompt}]}]})
+  });
+  const data=await res.json();
+  return data.candidates?.[0]?.content?.parts?.[0]?.text||"";
+}
+
 async function summarize(safeId){
   const a=articles.find(x=>x.id.replace(/[^a-zA-Z0-9_-]/g,"_")===safeId);
   if(!a||a.summarized) return;
@@ -278,14 +287,7 @@ async function summarize(safeId){
   sumEl.innerHTML=`<div class="summary-loading"><div class="dots"><span></span><span></span><span></span></div>AI要約を生成中...</div>`;
   document.querySelectorAll(`#card-${safeId} .ai-pill`).forEach(b=>b.disabled=true);
   try{
-    const res=await fetch("https://api.anthropic.com/v1/messages",{
-      method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1000,
-        system:"ニュース記事を日本語で2〜3文に要約してください。要約のみ返してください。",
-        messages:[{role:"user",content:`「${a.title}」（${a.source}）を要約してください。`}]})
-    });
-    const data=await res.json();
-    const text=data.content?.find(c=>c.type==="text")?.text||"要約できませんでした。";
+    const text=await gemini(`以下のニュース記事を日本語で2〜3文に要約してください。要約のみ返してください。\n「${a.title}」（${a.source}）`);
     a.summary=text;a.summarized=true;
     filterFeed();
     showToast("AI要約を生成しました");
@@ -306,14 +308,7 @@ async function generateHotReport(){
   }
   const titles=articles.slice(0,30).map((a,i)=>`${i+1}. [${a.cat}] ${a.title}`).join("\n");
   try{
-    const res=await fetch("https://api.anthropic.com/v1/messages",{
-      method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1000,
-        system:"テクノロジー・ビジネスニュースのアナリストとして、記事リストから今日の主要トレンドを3〜4点に絞り、日本語で簡潔にレポートしてください。各トレンドは「・」で始め1〜2文で。全体200文字以内。HTMLタグ不要。",
-        messages:[{role:"user",content:`以下の記事から今日のホットトピックをまとめてください:\n${titles}`}]})
-    });
-    const data=await res.json();
-    const text=data.content?.find(c=>c.type==="text")?.text||"レポートを生成できませんでした。";
+    const text=await gemini(`テクノロジー・ビジネスニュースのアナリストとして、以下の記事リストから今日の主要トレンドを3〜4点に絞り、日本語で簡潔にレポートしてください。各トレンドは「・」で始め1〜2文で。全体200文字以内。\n\n${titles}`);
     hotBody.className="hot-body";
     hotBody.innerHTML=text.split("\n").filter(l=>l.trim()).map(l=>
       `<p style="margin-bottom:5px">${l.replace(/^・/,'<span style="color:var(--accent);font-weight:600">・</span>')}</p>`
@@ -431,14 +426,7 @@ async function translateEnglishTitles(){
   if(!targets.length) return;
   const titlesText=targets.map((a,i)=>`${i+1}. ${a.title}`).join("\n");
   try{
-    const res=await fetch("https://api.anthropic.com/v1/messages",{
-      method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:2000,
-        system:"ニュース記事タイトルを日本語に翻訳してください。番号付きリストをそのまま返してください。翻訳のみ、前置き不要。",
-        messages:[{role:"user",content:`以下を日本語に翻訳してください:\n${titlesText}`}]})
-    });
-    const data=await res.json();
-    const text=data.content?.find(c=>c.type==="text")?.text||"";
+    const text=await gemini(`以下のニュース記事タイトルを日本語に翻訳してください。番号付きリストをそのまま返してください。翻訳のみ、前置き不要。\n${titlesText}`);
     const lines=text.split("\n").filter(l=>l.trim());
     targets.forEach((a,i)=>{
       const m=lines[i]?.replace(/^\d+\.\s*/,"").trim();
