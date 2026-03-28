@@ -15,20 +15,20 @@
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet">
 <style>
 :root {
-  --bg: #0a0a0f;
-  --bg2: #111118;
-  --bg3: #18181f;
-  --border: rgba(255,255,255,0.08);
-  --border2: rgba(255,255,255,0.14);
-  --text: #f0f0f5;
-  --text2: #9090a0;
-  --text3: #5a5a70;
-  --accent: #00e5a0;
-  --accent2: #00b57e;
-  --blue: #4a9eff;
-  --amber: #ffa940;
-  --purple: #a78bfa;
-  --pink: #f472b6;
+  --bg: #f5f5f7;
+  --bg2: #ffffff;
+  --bg3: #ebebed;
+  --border: rgba(0,0,0,0.08);
+  --border2: rgba(0,0,0,0.14);
+  --text: #1a1a1e;
+  --text2: #555560;
+  --text3: #9090a0;
+  --accent: #00a873;
+  --accent2: #007a55;
+  --blue: #1a6fd4;
+  --amber: #d4820a;
+  --purple: #6d4ed4;
+  --pink: #c4356a;
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
 }
@@ -120,10 +120,10 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
   padding:3px 10px;border-radius:8px;font-size:11px;font-weight:500;
   font-family:'Syne',sans-serif;letter-spacing:0.3px;
 }
-.badge-ai{background:rgba(0,229,160,0.12);color:var(--accent)}
-.badge-biz{background:rgba(74,158,255,0.12);color:var(--blue)}
-.badge-market{background:rgba(255,169,64,0.12);color:var(--amber)}
-.badge-tech{background:rgba(167,139,250,0.12);color:var(--purple)}
+.badge-ai{background:#d0f5e8;color:#007a55}
+.badge-biz{background:#daeafc;color:#1a6fd4}
+.badge-market{background:#fdefd4;color:#d4820a}
+.badge-tech{background:#ede8fc;color:#6d4ed4}
 .card-time{font-size:11px;color:var(--text3)}
 .card-source{font-size:12px;color:var(--text3);margin-bottom:8px;font-style:italic}
 .card-title{
@@ -274,14 +274,19 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
 const RSS_SOURCES = [
   {name:"TechCrunch Japan",url:"https://jp.techcrunch.com/feed/",cat:"テック",badge:"badge-tech"},
   {name:"The Verge",url:"https://www.theverge.com/rss/index.xml",cat:"テック",badge:"badge-tech"},
-  {name:"Reuters Technology",url:"https://feeds.reuters.com/reuters/technologyNews",cat:"マーケット",badge:"badge-market"}
+  {name:"Reuters Technology",url:"https://feeds.reuters.com/reuters/technologyNews",cat:"マーケット",badge:"badge-market"},
+  {name:"Wired Japan",url:"https://wired.jp/rss/",cat:"テック",badge:"badge-tech"},
+  {name:"東洋経済オンライン",url:"https://toyokeizai.net/list/feed/rss",cat:"マーケット",badge:"badge-market"},
+  {name:"MIT Technology Review",url:"https://www.technologyreview.com/feed/",cat:"AI",badge:"badge-ai"},
+  {name:"Ars Technica",url:"https://feeds.arstechnica.com/arstechnica/index",cat:"テック",badge:"badge-tech"},
+  {name:"Yahoo!ニュース テクノロジー",url:"https://news.yahoo.co.jp/rss/topics/it.xml",cat:"テック",badge:"badge-tech"}
 ];
 const RSS2JSON = "https://api.rss2json.com/v1/api.json?rss_url=";
 
 let articles = [];
 let activeCat = "すべて";
 let activeNav = "feed";
-const CATS = ["すべて","テック","マーケット"];
+const CATS = ["すべて","AI","テック","マーケット"];
 
 function renderCats(){
   document.getElementById("cats").innerHTML = CATS.map(c=>
@@ -430,7 +435,7 @@ async function loadFeed(){
         .then(r=>r.json())
         .then(data=>{
           if(!data.items) return [];
-          return data.items.slice(0,8).map((item,i)=>({
+          return data.items.slice(0,15).map((item,i)=>({
             id: src.name+i,
             cat: src.cat,
             badge: src.badge,
@@ -464,7 +469,43 @@ async function loadFeed(){
 
   btn.classList.remove("spinning");
   renderFeed();
+  showToast(`${articles.length}件の記事を取得中...`);
+
+  await translateEnglishTitles();
+  renderFeed();
   showToast(`${articles.length}件の記事を取得しました`);
+}
+
+function isEnglish(text){
+  return /^[\x00-\x7F\s\-–—''""「」【】：:]+$/.test(text);
+}
+
+async function translateEnglishTitles(){
+  const targets = articles.filter(a=>isEnglish(a.title));
+  if(!targets.length) return;
+
+  const titlesText = targets.map((a,i)=>`${i+1}. ${a.title}`).join("\n");
+  try{
+    const res = await fetch("https://api.anthropic.com/v1/messages",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({
+        model:"claude-sonnet-4-20250514",
+        max_tokens:1000,
+        system:"ニュース記事のタイトルを日本語に翻訳します。番号付きリストをそのまま返してください。翻訳のみ、前置き不要。",
+        messages:[{role:"user",content:`以下の英語タイトルを自然な日本語に翻訳してください:\n${titlesText}`}]
+      })
+    });
+    const data = await res.json();
+    const text = data.content?.find(c=>c.type==="text")?.text||"";
+    const lines = text.split("\n").filter(l=>l.trim());
+    targets.forEach((a,i)=>{
+      const match = lines[i]?.replace(/^\d+\.\s*/,"").trim();
+      if(match) a.title = match;
+    });
+  }catch(e){
+    // 翻訳失敗時はそのまま表示
+  }
 }
 
 function timeAgo(dateStr){
