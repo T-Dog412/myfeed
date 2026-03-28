@@ -285,13 +285,25 @@ function cardHTML(a){
   </div>`;
 }
 
-async function gemini(prompt){
-  const res=await fetch(GEMINI_URL,{
-    method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({contents:[{parts:[{text:prompt}]}]})
-  });
-  const data=await res.json();
-  return data.candidates?.[0]?.content?.parts?.[0]?.text||"";
+async function gemini(prompt, retry=3){
+  for(let i=0;i<retry;i++){
+    try{
+      const res=await fetch(GEMINI_URL,{
+        method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({contents:[{parts:[{text:prompt}]}]})
+      });
+      if(res.status===429){
+        await new Promise(r=>setTimeout(r, 3000*(i+1)));
+        continue;
+      }
+      const data=await res.json();
+      return data.candidates?.[0]?.content?.parts?.[0]?.text||"";
+    }catch(e){
+      if(i===retry-1) throw e;
+      await new Promise(r=>setTimeout(r,2000));
+    }
+  }
+  return "";
 }
 
 async function summarize(safeId){
@@ -430,11 +442,12 @@ async function loadFeed(){
   await translateEnglishTitles();
   filterFeed();
   showToast(`${articles.length}件の記事を取得しました`);
+  await new Promise(r=>setTimeout(r,2000));
   generateHotReport();
 }
 
 async function translateEnglishTitles(){
-  const targets=articles.filter(a=>isEnglish(a.title));
+  const targets=articles.filter(a=>isEnglish(a.title)).slice(0,20);
   if(!targets.length) return;
   const titlesText=targets.map((a,i)=>`${i+1}. ${a.title}`).join("\n");
   try{
