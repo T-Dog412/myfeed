@@ -199,11 +199,11 @@ const RSS_SOURCES = [
 ];
 
 async function fetchRSS(url){
-  const proxy = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
+  const proxy = `/api/rss?url=${encodeURIComponent(url)}`;
   const r = await fetch(proxy);
-  const d = await r.json();
+  const text = await r.text();
   const parser = new DOMParser();
-  const xml = parser.parseFromString(d.contents, "text/xml");
+  const xml = parser.parseFromString(text, "text/xml");
   const items = [...xml.querySelectorAll("item")].slice(0,15);
   return items.map((item,i)=>({
     title: item.querySelector("title")?.textContent||"",
@@ -214,8 +214,7 @@ async function fetchRSS(url){
                (item.querySelector("description")?.textContent||"").match(/<img[^>]+src=["']([^"']+)["']/i)?.[1]||null
   }));
 }
-const GEMINI_KEY = "AIzaSyAaScMmgsndhKgUb8RSaNr3EroDmTwE16M";
-const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_KEY}`;
+const GEMINI_URL = `/api/gemini`;
 const CATS = ["すべて","AI","テック","マーケット"];
 
 let articles = [];
