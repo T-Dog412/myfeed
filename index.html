@@ -271,21 +271,17 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
 <div id="toast"></div>
 
 <script>
-const ARTICLES = [
-  {id:1,cat:"AI",badge:"badge-ai",source:"MIT Technology Review",time:"2時間前",title:"GPT-5の新機能：マルチモーダル推論が企業導入を大きく加速させる",saved:false,summarized:false,summary:"",trending:true},
-  {id:2,cat:"ビジネス",badge:"badge-biz",source:"Harvard Business Review",time:"3時間前",title:"2025年のDX戦略：成功企業に共通する「AI先行投資」の3つのパターン",saved:false,summarized:false,summary:"",trending:false},
-  {id:3,cat:"マーケット",badge:"badge-market",source:"Bloomberg",time:"4時間前",title:"日銀の利上げ観測が再び高まる——円相場と日本株への影響シナリオ",saved:false,summarized:false,summary:"",trending:true},
-  {id:4,cat:"テック",badge:"badge-tech",source:"TechCrunch",time:"5時間前",title:"Anthropic、新Claudeモデルをリリース——コーディング性能が前世代比40%向上",saved:true,summarized:false,summary:"",trending:false},
-  {id:5,cat:"AI",badge:"badge-ai",source:"The Verge",time:"6時間前",title:"生成AIによる創薬：2024年に承認された新薬のうちAI支援が30%超に",saved:false,summarized:false,summary:"",trending:true},
-  {id:6,cat:"ビジネス",badge:"badge-biz",source:"Nikkei Asia",time:"7時間前",title:"東南アジアのスタートアップ資金調達、前年比22%増——日本企業の参入機会",saved:false,summarized:false,summary:"",trending:false},
-  {id:7,cat:"テック",badge:"badge-tech",source:"Wired",time:"8時間前",title:"量子コンピューティング商用化、IBMとGoogleが2026年を目標に競争激化",saved:false,summarized:false,summary:"",trending:false},
-  {id:8,cat:"マーケット",badge:"badge-market",source:"Reuters",time:"10時間前",title:"エヌビディア株が再び最高値更新——AIチップ需要が市場予測を大幅上回る",saved:false,summarized:false,summary:"",trending:true},
+const RSS_SOURCES = [
+  {name:"TechCrunch Japan",url:"https://jp.techcrunch.com/feed/",cat:"テック",badge:"badge-tech"},
+  {name:"The Verge",url:"https://www.theverge.com/rss/index.xml",cat:"テック",badge:"badge-tech"},
+  {name:"Reuters Technology",url:"https://feeds.reuters.com/reuters/technologyNews",cat:"マーケット",badge:"badge-market"}
 ];
+const RSS2JSON = "https://api.rss2json.com/v1/api.json?rss_url=";
 
-let articles = JSON.parse(JSON.stringify(ARTICLES));
+let articles = [];
 let activeCat = "すべて";
 let activeNav = "feed";
-const CATS = ["すべて","AI","ビジネス","テック","マーケット"];
+const CATS = ["すべて","テック","マーケット"];
 
 function renderCats(){
   document.getElementById("cats").innerHTML = CATS.map(c=>
@@ -329,7 +325,7 @@ function cardHTML(a){
       <span class="card-time">${a.time}</span>
     </div>
     <div class="card-source">${a.source}</div>
-    <div class="card-title">${a.title}</div>
+    <div class="card-title"><a href="${a.url}" target="_blank" rel="noopener" style="color:inherit;text-decoration:none">${a.title}</a></div>
     ${a.summarized
       ? `<div class="summary" id="sum-${a.id}">${a.summary}</div>`
       : `<div id="sum-${a.id}"></div>`
@@ -415,9 +411,68 @@ function showToast(msg){
 async function loadFeed(){
   const btn=document.getElementById("refresh-btn");
   btn.classList.add("spinning");
-  await new Promise(r=>setTimeout(r,1000));
+  const feed=document.getElementById("feed");
+  feed.innerHTML=`<div class="feed" style="padding:0">
+    ${[1,2,3,4].map(()=>`<div class="skel-card">
+      <div class="skeleton" style="height:12px;width:60px;margin-bottom:12px"></div>
+      <div class="skeleton" style="height:16px;width:90%;margin-bottom:8px"></div>
+      <div class="skeleton" style="height:14px;width:70%"></div>
+    </div>`).join("")}
+  </div>`;
+
+  const saved = articles.filter(a=>a.saved).map(a=>a.url);
+  const summarized = {};
+  articles.filter(a=>a.summarized).forEach(a=>{ summarized[a.url]=a.summary; });
+
+  const results = await Promise.allSettled(
+    RSS_SOURCES.map(src =>
+      fetch(RSS2JSON + encodeURIComponent(src.url))
+        .then(r=>r.json())
+        .then(data=>{
+          if(!data.items) return [];
+          return data.items.slice(0,8).map((item,i)=>({
+            id: src.name+i,
+            cat: src.cat,
+            badge: src.badge,
+            source: src.name,
+            title: item.title||"",
+            url: item.link||"#",
+            time: timeAgo(item.pubDate),
+            saved: saved.includes(item.link||""),
+            summarized: !!(summarized[item.link||""]),
+            summary: summarized[item.link||""]||"",
+            trending: i < 2,
+            pubDate: new Date(item.pubDate||0)
+          }));
+        })
+    )
+  );
+
+  articles = results
+    .filter(r=>r.status==="fulfilled")
+    .flatMap(r=>r.value)
+    .sort((a,b)=>b.pubDate-a.pubDate);
+
+  if(!articles.length){
+    articles = [{
+      id:"fallback",cat:"テック",badge:"badge-tech",
+      source:"MyFeed",time:"今",
+      title:"RSSの取得に失敗しました。ネットワーク環境を確認してください。",
+      url:"#",saved:false,summarized:false,summary:"",trending:false,pubDate:new Date()
+    }];
+  }
+
   btn.classList.remove("spinning");
-  showToast("フィードを更新しました");
+  renderFeed();
+  showToast(`${articles.length}件の記事を取得しました`);
+}
+
+function timeAgo(dateStr){
+  if(!dateStr) return "";
+  const diff = (Date.now() - new Date(dateStr)) / 60000;
+  if(diff < 60) return `${Math.floor(diff)}分前`;
+  if(diff < 1440) return `${Math.floor(diff/60)}時間前`;
+  return `${Math.floor(diff/1440)}日前`;
 }
 
 if('serviceWorker' in navigator){
@@ -428,6 +483,7 @@ if('serviceWorker' in navigator){
 
 renderCats();
 renderFeed();
+loadFeed();
 </script>
 </body>
 </html>
